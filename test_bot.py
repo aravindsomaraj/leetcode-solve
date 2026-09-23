@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+import urllib.error
 
 import bot
 
@@ -134,6 +135,25 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(self.state()["attempts"], 1)
         bot.run_day(CFG, FakeLC([GOOD, GOOD]), solver, self.path)
         self.assertEqual(self.state()["attempts"], 2)
+
+    def test_explicit_503_preserves_attempt(self):
+        solver = FakeSolver()
+        with patch.object(solver, "solve", side_effect=bot.ModelUnavailable("HTTP 503")):
+            with self.assertRaises(bot.ModelUnavailable):
+                bot.run_day(CFG, FakeLC([]), solver, self.path)
+        self.assertEqual(self.state()["attempts"], 0)
+        self.assertEqual(self.state()["phase"], "ready")
+        self.assertEqual(bot.run_day(CFG, FakeLC([GOOD, GOOD]), solver, self.path), 0)
+        self.assertEqual(self.state()["attempts"], 1)
+
+    def test_generation_retries_explicit_503_only(self):
+        http = bot.HTTP()
+        error = urllib.error.HTTPError("https://example.com", 503, "busy", {}, None)
+        with patch.object(http.opener, "open", side_effect=error) as opened, patch("bot.time.sleep") as sleep:
+            with self.assertRaises(bot.ModelUnavailable):
+                http.json("https://example.com", {}, body={"prompt": "x"}, retry_statuses=(503,))
+        self.assertEqual(opened.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
 
     def test_midnight_stops_before_submission(self):
         q = problem()
