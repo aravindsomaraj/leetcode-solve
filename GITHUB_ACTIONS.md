@@ -32,7 +32,7 @@ In the repo open **Settings → Secrets and variables → Actions → New reposi
 
 You do not create a GitHub personal access token for the workflow. GitHub supplies its job token; the workflow requests repository `contents: write` to store checkpoints. Organization policies or branch rules must allow it to create and update the `bot-state` branch. If the organization forbids this permission, the job stops before solving/submitting rather than running without persistent state.
 
-To change the model or attempt limit, edit the non-secret settings in `config.example.json` on `main`. Keep credential values as placeholders there; the workflow replaces them through environment variables.
+To change the model or attempt limit, edit the non-secret settings in `config.example.json` on `main`. Keep credential values as placeholders there; the workflow replaces them through environment variables. The current default is `gemini-3.8-flash`; the older `gemini-2.5-flash` is restricted for new Google projects.
 
 ## Start and inspect it
 
