@@ -42,9 +42,9 @@ The runner verifies the authenticated username before it performs any judge oper
 
 ### Model and attempt settings
 
-Defaults are `gemini-2.5-flash`, a 4,096-token thinking budget, three generation attempts per UTC day, and 16,000 maximum output tokens per generation. The configured model must be available to your Google project. `thinking_budget` is for Gemini 2.5 models.
+Defaults are `gemini-3.8-flash`, `medium` thinking level, three generation attempts per UTC day, and 16,000 maximum output tokens per generation. The configured model must be available to your Google project. `thinking_level` can be `low`, `medium`, or `high` for this model. Google limits 2.5 model access on new projects, so do not use the previous package's `gemini-2.5-flash` default.
 
-Thinking tokens count toward the output budget. If responses are incomplete, raising `max_output_tokens` or reducing `thinking_budget` can help. The allowed maximum is 32,000. This model's published free tier has no per-token charge within quota; Google's current limits are shown in AI Studio. Keep the project on the free tier if you want no API charges. Google says free-tier prompts and responses may be used to improve its products.
+Thinking tokens count toward the output budget. If responses are incomplete, raising `max_output_tokens` or reducing `thinking_level` can help. The allowed maximum is 32,000. This model's published free tier has no per-token charge within quota; Google's current limits are shown in AI Studio. Keep the project on the free tier if you want no API charges. Google says free-tier prompts and responses may be used to improve its products.
 
 Alternatively, the environment variables `GEMINI_API_KEY`, `LEETCODE_SESSION`, `LEETCODE_CSRF_TOKEN`, and `LEETCODE_USERNAME` override the corresponding JSON fields. Scheduled jobs must receive those variables too. `config.json` is usually simpler for a personal machine.
 
@@ -66,7 +66,7 @@ Check account access and today's problem:
 py -3 bot.py check
 ```
 
-`check` makes only LeetCode read requests. It does not validate model availability or API credit, call the model, run code, or submit anything.
+`check` reads LeetCode and Gemini model metadata, including whether this key can access the configured model. It does not generate code, run examples, or submit anything.
 
 Start the complete automatic workflow:
 
@@ -172,9 +172,10 @@ Only the problem statement, code template, previous generated code and selected 
 | Missing config or invalid JSON | Check `config.json`, quotes, commas, and that placeholders were replaced. |
 | Wrong username or expired session | Sign in to LeetCode and refresh both cookies and the configured username. |
 | HTTP 403 or non-JSON response | The site may be blocking automated access, or the session/CSRF pair may be invalid. Refresh credentials. The client does not bypass site challenges; valid cookies alone may not be enough. |
-| HTTP 400 from Gemini | Check model name, free-tier access and thinking budget settings. |
+| HTTP 400 from Gemini | Check model name, free-tier access and thinking level settings. |
+| HTTP 404 from Gemini | The selected model may not be available to this project. Run `check` after switching to `gemini-3.8-flash` and check model availability in AI Studio. |
 | HTTP 429 | Check API quota/rate limits; later scheduled runs can retry within the daily cap. |
-| Incomplete model response | Increase the output-token budget within the configured limit, or reduce the thinking budget. A failed generation still consumes a reserved daily attempt. |
+| Incomplete model response | Increase the output-token budget within the configured limit, or reduce the thinking level. A failed generation still consumes a reserved daily attempt. |
 | Judge polling timeout | Run again; the saved job is polled without another submission. |
 | Daily problem date mismatch | Wait for the UTC rollover data to update. |
 | Daily attempt limit reached | The runner stops for that date. It starts with a fresh budget on the next UTC date. |
@@ -212,6 +213,7 @@ LeetCode uses undocumented/internal interfaces here. Its terms prohibit scraping
 - Gemini free-tier pricing: https://ai.google.dev/gemini-api/docs/pricing
 - Gemini API generation: https://ai.google.dev/gemini-api/docs/generate-content/text-generation
 - Gemini thinking and output budgets: https://ai.google.dev/gemini-api/docs/generate-content/thinking
+- Gemini model access for new projects: https://ai.google.dev/gemini-api/docs/models
 - Windows task settings: https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtasksettingsset
 
 Files: `bot.py` (runner), `config.example.json`, `install-task.ps1`, `run.cmd`, `run.sh`, `test_bot.py`, `.gitignore`, and this README. Also included: `GITHUB_ACTIONS.md` and `.github/workflows/daily.yml`. The ZIP contains no credentials or prior run state.
