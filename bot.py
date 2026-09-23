@@ -27,6 +27,11 @@ class BotError(Exception):
     pass
 
 
+class ModelUnavailable(BotError):
+    """The generation endpoint explicitly rejected this request with HTTP 503."""
+    pass
+
+
 def today():
     return dt.datetime.now(dt.timezone.utc).date().isoformat()
 
@@ -79,9 +84,10 @@ class HTTP:
     def __init__(self):
         self.opener = urllib.request.build_opener(NoRedirect())
 
-    def json(self, url, headers, body=None, timeout=45, retry=False, method=None, allow_404=False):
-        """Only read operations opt into retries; POST mutations never do."""
-        for attempt in range(3 if retry else 1):
+    def json(self, url, headers, body=None, timeout=45, retry=False, method=None,
+             allow_404=False, retry_statuses=()):
+        """Retry reads, or explicitly rejected generation requests on selected statuses."""
+        for attempt in range(3 if retry or retry_statuses else 1):
             try:
                 request = urllib.request.Request(
                     url, data=None if body is None else json.dumps(body).encode(),
@@ -102,9 +108,11 @@ class HTTP:
             except urllib.error.HTTPError as e:
                 if e.code == 404 and allow_404:
                     return None
-                if retry and e.code in (429, 500, 502, 503, 504) and attempt < 2:
+                if (e.code in retry_statuses or retry and e.code in (429, 500, 502, 503, 504)) and attempt < 2:
                     time.sleep(5 * (attempt + 1))
                     continue
+                if e.code == 503 and e.code in retry_statuses:
+                    raise ModelUnavailable("Gemini returned HTTP 503 after retries. Try a fresh run later.") from None
                 # Do not print response bodies, requests or headers: these may contain secrets.
                 hint = {401: "Refresh credentials or check API access.",
                         403: "Access blocked or CSRF/session invalid. Refresh credentials; no challenge bypass is attempted.",
@@ -269,7 +277,7 @@ class Solver:
         }
         result = self.http.json(f"https://generativelanguage.googleapis.com/v1beta/models/{self.cfg['model']}:generateContent",
                                 {"x-goog-api-key": self.cfg["gemini_api_key"]},
-                                payload, timeout=600)
+                                payload, timeout=600, retry_statuses=(503,))
         candidates = result.get("candidates") or []
         candidate = candidates[0] if candidates else {}
         if candidate.get("finishReason") != "STOP":
@@ -370,7 +378,7 @@ def run_day(cfg, lc, solver, directory, q=None, checkpoint=None):
         if phase.startswith("sending_"):
             raise BotError("Previous judge request has an uncertain outcome. See README recovery; not duplicating it.")
         if phase == "generating":
-            # A crash or API error consumed a reserved attempt. Never silently repeat a billed call.
+            # A crash or ambiguous API error consumed a reserved attempt.
             state["phase"] = "ready"
             save()
             continue
@@ -383,7 +391,13 @@ def run_day(cfg, lc, solver, directory, q=None, checkpoint=None):
             state.update(phase="generating", attempts=state["attempts"] + 1)
             save()
             LOG.info("Generating attempt %s/%s for %s.", state["attempts"], cfg["max_attempts"], q["titleSlug"])
-            code, usage = solver.solve(q, state["code"], state["feedback"])
+            try:
+                code, usage = solver.solve(q, state["code"], state["feedback"])
+            except ModelUnavailable:
+                # HTTP 503 explicitly rejected generation; no solution was returned.
+                state.update(phase="ready", attempts=state["attempts"] - 1)
+                save()
+                raise
             (daydir / f"attempt-{state['attempts']}.cpp").write_text(code, encoding="utf-8")
             state.update(code=code, usage=usage, phase="test_ready")
             save()
