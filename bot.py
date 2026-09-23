@@ -225,7 +225,17 @@ class LeetCode:
                               {**self.headers, "Referer": f"{LC}/problems/{q['titleSlug']}/"}, body)
         identifier = data.get("interpret_id" if kind == "test" else "submission_id")
         if not identifier or not re.fullmatch(r"[A-Za-z0-9_-]+", str(identifier)):
-            raise BotError("No judge ID returned. Request outcome is uncertain; see recovery instructions.")
+            # Keep only diagnostic fields, and redact credentials before logging.
+            details = {k: data[k] for k in ("error", "message", "detail", "status", "status_code")
+                       if k in data and isinstance(data[k], (str, int, bool))}
+            diagnostic = json.dumps(details, ensure_ascii=True)
+            for secret in (self.cfg.get("leetcode_session"), self.cfg.get("csrf_token")):
+                if secret:
+                    diagnostic = diagnostic.replace(secret, "[REDACTED]")
+            fields = ", ".join(k for k in data if re.fullmatch(r"[A-Za-z_]{1,40}", k))[:300]
+            raise BotError(f"LeetCode {kind} returned no usable judge ID. "
+                           f"Response fields: {fields}. Details: {diagnostic[:800]}. "
+                           "Saved code is retained; a fresh run can retry a test.")
         return str(identifier)
 
     def poll(self, identifier):
@@ -392,6 +402,13 @@ def run_day(cfg, lc, solver, directory, q=None, checkpoint=None):
         if phase == "accepted":
             LOG.info("Already accepted for %s; no work needed.", q["date"])
             return 0
+        if phase == "sending_test":
+            # Repeating a sample test does not create a final submission.
+            # Recovery happens once on a fresh run; a new failure exits again.
+            LOG.warning("Resuming saved solution by retrying its sample test.")
+            state["phase"] = "test_ready"
+            save()
+            continue
         if phase.startswith("sending_"):
             raise BotError("Previous judge request has an uncertain outcome. See README recovery; not duplicating it.")
         if phase == "generating":
