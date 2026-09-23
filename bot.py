@@ -224,7 +224,9 @@ class LeetCode:
         data = self.http.json(f"{LC}/problems/{q['titleSlug']}/{endpoint}/",
                               {**self.headers, "Referer": f"{LC}/problems/{q['titleSlug']}/"}, body)
         identifier = data.get("interpret_id" if kind == "test" else "submission_id")
-        if not identifier or not re.fullmatch(r"[A-Za-z0-9_-]+", str(identifier)):
+        if (type(identifier) not in (str, int) or not str(identifier)
+                or len(str(identifier)) > 512 or str(identifier) in (".", "..")
+                or any(ch.isspace() or ord(ch) < 32 for ch in str(identifier))):
             # Keep only diagnostic fields, and redact credentials before logging.
             details = {k: data[k] for k in ("error", "message", "detail", "status", "status_code")
                        if k in data and isinstance(data[k], (str, int, bool))}
@@ -234,14 +236,20 @@ class LeetCode:
                     diagnostic = diagnostic.replace(secret, "[REDACTED]")
             fields = ", ".join(k for k in data if re.fullmatch(r"[A-Za-z_]{1,40}", k))[:300]
             raise BotError(f"LeetCode {kind} returned no usable judge ID. "
+                           f"ID type: {type(identifier).__name__}; "
                            f"Response fields: {fields}. Details: {diagnostic[:800]}. "
                            "Saved code is retained; a fresh run can retry a test.")
         return str(identifier)
 
     def poll(self, identifier):
+        # Treat judge IDs as opaque values, not a guessed character alphabet.
+        identifier = str(identifier)
+        if not identifier or identifier in (".", "..") or len(identifier) > 512:
+            raise BotError("Invalid saved judge ID.")
+        encoded_id = urllib.parse.quote(identifier, safe="")
         deadline = time.monotonic() + self.cfg["poll_timeout_seconds"]
         while time.monotonic() < deadline:
-            result = self.http.json(f"{LC}/submissions/detail/{identifier}/check/", self.headers, retry=True)
+            result = self.http.json(f"{LC}/submissions/detail/{encoded_id}/check/", self.headers, retry=True)
             if result.get("state") == "SUCCESS":
                 return result
             if result.get("state") not in ("PENDING", "STARTED"):
