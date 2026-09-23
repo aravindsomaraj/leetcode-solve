@@ -2,7 +2,7 @@
 
 **For GitHub-hosted execution with your computer off, start with [GITHUB_ACTIONS.md](GITHUB_ACTIONS.md).** The package includes a daily workflow and persistent checkpoints. Local Windows/Linux scheduling remains available below.
 
-An unattended Python runner: fetch today's challenge, generate C++ with the OpenAI API, run the examples on LeetCode, submit, read the judge verdict, and revise failures automatically. No daily confirmation or manual testing is required.
+An unattended Python runner: fetch today's challenge, generate C++ with the Gemini API free tier, run the examples on LeetCode, submit, read the judge verdict, and revise failures automatically. No daily confirmation or manual testing is required.
 
 **Delivery status:** implemented and tested using simulated API responses. No live account login, paid model request, or real submission was performed during development. LeetCode's undocumented endpoints may change or reject the client immediately; this is an experimental integration, not a guarantee of daily acceptance.
 
@@ -10,7 +10,7 @@ An unattended Python runner: fetch today's challenge, generate C++ with the Open
 
 - Python 3.11 or newer. No third-party Python packages or C++ compiler are needed.
 - Your own LeetCode account on `leetcode.com` (not `leetcode.cn`).
-- An OpenAI API key with available API quota and access to the configured model.
+- A Gemini API key with free tier access and available quota. Create it at https://aistudio.google.com/app/apikey in a project without paid billing enabled.
 - A computer/server that is powered on and connected to the internet when scheduled. A website host such as GitHub Pages cannot run this job.
 
 **Add credentials on your computer. Do not send your cookies or API key in chat.**
@@ -23,7 +23,7 @@ Copy `config.example.json` to `config.json`. Fill in these four values, preservi
 
 | Setting | Value to enter |
 | --- | --- |
-| `openai_api_key` | Your API key from https://platform.openai.com/api-keys |
+| `gemini_api_key` | Your API key from https://aistudio.google.com/app/apikey |
 | `leetcode_session` | The value of your `LEETCODE_SESSION` cookie |
 | `csrf_token` | The value of your `csrftoken` cookie |
 | `username` | Your LeetCode username, not your email or display name |
@@ -42,11 +42,11 @@ The runner verifies the authenticated username before it performs any judge oper
 
 ### Model and attempt settings
 
-Defaults are `gpt-6-astra`, `high` reasoning effort, three generation attempts per UTC day, and 16,000 maximum output tokens per generation. You can change `model` to a Responses API model available to your account. Change `reasoning_effort` to a value that model supports, or an empty string to omit the parameter.
+Defaults are `gemini-2.5-flash`, a 4,096-token thinking budget, three generation attempts per UTC day, and 16,000 maximum output tokens per generation. The configured model must be available to your Google project. `thinking_budget` is for Gemini 2.5 models.
 
-Reasoning tokens count toward the output budget. If responses are incomplete, raising `max_output_tokens` can help, at increased potential cost. The allowed maximum is 32,000. The runner caps generation calls rather than imposing a dollar budget; review your API usage and billing settings. Input tokens are also billed according to the selected model.
+Thinking tokens count toward the output budget. If responses are incomplete, raising `max_output_tokens` or reducing `thinking_budget` can help. The allowed maximum is 32,000. This model's published free tier has no per-token charge within quota; Google's current limits are shown in AI Studio. Keep the project on the free tier if you want no API charges. Google says free-tier prompts and responses may be used to improve its products.
 
-Alternatively, the environment variables `OPENAI_API_KEY`, `LEETCODE_SESSION`, `LEETCODE_CSRF_TOKEN`, and `LEETCODE_USERNAME` override the corresponding JSON fields. Scheduled jobs must receive those variables too. `config.json` is usually simpler for a personal machine.
+Alternatively, the environment variables `GEMINI_API_KEY`, `LEETCODE_SESSION`, `LEETCODE_CSRF_TOKEN`, and `LEETCODE_USERNAME` override the corresponding JSON fields. Scheduled jobs must receive those variables too. `config.json` is usually simpler for a personal machine.
 
 ## 2. First run — Windows
 
@@ -155,7 +155,7 @@ Unlike the Windows task, ordinary cron does not catch up when the host was power
 
 1. Acquire a process lock and verify your LeetCode session and username.
 2. Read the current UTC daily question, its statement and C++ template.
-3. Reserve one attempt in durable local state, then request a C++ solution from OpenAI.
+3. Reserve one attempt in durable local state, then request a C++ solution from Gemini.
 4. Run the provided example test inputs using LeetCode's `interpret_solution` endpoint.
 5. If the example run succeeds, submit to the full judge. An example run is not proof of correctness; the full verdict decides acceptance.
 6. Feed compile/runtime/wrong-answer/timeout verdicts back to the model for another solution, within the daily attempt limit.
@@ -163,7 +163,7 @@ Unlike the Windows task, ordinary cron does not catch up when the host was power
 
 State and results live in `runs/YYYY-MM-DD/`. Operational logs rotate in `runs/bot.log`. The runner resumes known judge IDs after a timeout and skips an already accepted local run. It does not check whether you manually solved the problem elsewhere; the skip is based on this runner's saved state.
 
-Only the problem statement, code template, previous generated code and selected judge feedback go to OpenAI. LeetCode cookies remain in the LeetCode client. API requests use `store: false`; this does not itself establish zero data retention. Secrets are omitted from logs and no external notification service is configured.
+Only the problem statement, code template, previous generated code and selected judge feedback go to Gemini. LeetCode cookies remain in the LeetCode client. Google's published free-tier data policy permits use to improve its products. Secrets are omitted from logs and no external notification service is configured.
 
 ## Troubleshooting and occasional recovery
 
@@ -172,9 +172,9 @@ Only the problem statement, code template, previous generated code and selected 
 | Missing config or invalid JSON | Check `config.json`, quotes, commas, and that placeholders were replaced. |
 | Wrong username or expired session | Sign in to LeetCode and refresh both cookies and the configured username. |
 | HTTP 403 or non-JSON response | The site may be blocking automated access, or the session/CSRF pair may be invalid. Refresh credentials. The client does not bypass site challenges; valid cookies alone may not be enough. |
-| HTTP 400 from OpenAI | Check model name, model access and supported reasoning settings. |
+| HTTP 400 from Gemini | Check model name, free-tier access and thinking budget settings. |
 | HTTP 429 | Check API quota/rate limits; later scheduled runs can retry within the daily cap. |
-| Incomplete model response | Increase the output-token budget within the configured limit, or change the model/effort. A failed generation still consumes a reserved daily attempt. |
+| Incomplete model response | Increase the output-token budget within the configured limit, or reduce the thinking budget. A failed generation still consumes a reserved daily attempt. |
 | Judge polling timeout | Run again; the saved job is polled without another submission. |
 | Daily problem date mismatch | Wait for the UTC rollover data to update. |
 | Daily attempt limit reached | The runner stops for that date. It starts with a fresh budget on the next UTC date. |
@@ -209,8 +209,9 @@ LeetCode uses undocumented/internal interfaces here. Its terms prohibit scraping
 - LeetCode robots policy: https://leetcode.com/robots.txt
 - Daily challenge UTC timing: https://leetcode.com/discuss/post/655704/april-leetcoding-challenge/
 - Community-maintained API schema reference, not an official contract: https://github.com/fspv/leetcode-swagger/blob/master/swagger.yml
-- OpenAI Responses/code generation: https://developers.openai.com/api/docs/guides/code-generation
-- OpenAI reasoning and token budgets: https://developers.openai.com/api/docs/guides/reasoning
+- Gemini free-tier pricing: https://ai.google.dev/gemini-api/docs/pricing
+- Gemini API generation: https://ai.google.dev/gemini-api/docs/generate-content/text-generation
+- Gemini thinking and output budgets: https://ai.google.dev/gemini-api/docs/generate-content/thinking
 - Windows task settings: https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtasksettingsset
 
 Files: `bot.py` (runner), `config.example.json`, `install-task.ps1`, `run.cmd`, `run.sh`, `test_bot.py`, `.gitignore`, and this README. Also included: `GITHUB_ACTIONS.md` and `.github/workflows/daily.yml`. The ZIP contains no credentials or prior run state.
