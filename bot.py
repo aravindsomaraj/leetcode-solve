@@ -155,6 +155,11 @@ def load_config(path):
     cfg.setdefault("model", "gemini-3.8-flash")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", cfg["model"]):
         raise BotError("Invalid Gemini model identifier.")
+    cfg.setdefault("fallback_models", ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"])
+    if (not isinstance(cfg["fallback_models"], list) or len(cfg["fallback_models"]) > 3
+            or any(not isinstance(m, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", m)
+                   for m in cfg["fallback_models"])):
+        raise BotError("fallback_models must contain up to three model identifiers.")
     cfg.setdefault("thinking_level", "medium")
     if cfg["thinking_level"] not in ("low", "medium", "high"):
         raise BotError("thinking_level must be low, medium, or high for Gemini 3.8 Flash.")
@@ -275,9 +280,21 @@ class Solver:
             "generationConfig": {"maxOutputTokens": self.cfg["max_output_tokens"],
                                  "thinkingConfig": {"thinkingLevel": self.cfg["thinking_level"]}},
         }
-        result = self.http.json(f"https://generativelanguage.googleapis.com/v1beta/models/{self.cfg['model']}:generateContent",
-                                {"x-goog-api-key": self.cfg["gemini_api_key"]},
-                                payload, timeout=600, retry_statuses=(503,))
+        models = list(dict.fromkeys([self.cfg["model"], *self.cfg.get("fallback_models", [])]))
+        for index, model in enumerate(models):
+            # Use the fallback model's default thinking settings for compatibility.
+            if index:
+                payload["generationConfig"].pop("thinkingConfig", None)
+            LOG.info("Requesting solution from %s.", model)
+            try:
+                result = self.http.json(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                                        {"x-goog-api-key": self.cfg["gemini_api_key"]},
+                                        payload, timeout=600, retry_statuses=(503,))
+                break
+            except ModelUnavailable:
+                if index == len(models) - 1:
+                    raise
+                LOG.warning("%s returned 503 after retries; switching to %s.", model, models[index + 1])
         candidates = result.get("candidates") or []
         candidate = candidates[0] if candidates else {}
         if candidate.get("finishReason") != "STOP":
@@ -462,7 +479,7 @@ def main():
             LOG.info("Authenticated; daily problem: %s (%s UTC).", q["titleSlug"], q["date"])
             solver = Solver(cfg)
             solver.check_model()
-            LOG.info("Gemini model %s is available for generateContent.", cfg["model"])
+            LOG.info("Gemini metadata confirms %s supports generateContent; generation capacity is not yet verified.", cfg["model"])
             if args.command == "check":
                 LOG.info("Check passed. No model generation, tests or submissions were made.")
                 return 0
