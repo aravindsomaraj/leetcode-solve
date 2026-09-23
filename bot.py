@@ -109,7 +109,8 @@ class HTTP:
                 hint = {401: "Refresh credentials or check API access.",
                         403: "Access blocked or CSRF/session invalid. Refresh credentials; no challenge bypass is attempted.",
                         429: "Rate limit or API quota reached.",
-                        400: "Request rejected; check model settings or endpoint schema."}.get(e.code, "")
+                        400: "Request rejected; check model settings or endpoint schema.",
+                        404: "The configured model/endpoint may be unavailable to this project. Check model access in AI Studio."}.get(e.code, "")
                 raise BotError(f"HTTP {e.code} from {urllib.parse.urlparse(url).hostname}. {hint}") from None
             except (urllib.error.URLError, TimeoutError, OSError):
                 if retry and attempt < 2:
@@ -143,12 +144,12 @@ def load_config(path):
         cfg.setdefault(key, default)
         if type(cfg[key]) is not int or not low <= cfg[key] <= high:
             raise BotError(f"{key} must be an integer from {low} to {high}.")
-    cfg.setdefault("model", "gemini-2.5-flash")
+    cfg.setdefault("model", "gemini-3.8-flash")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", cfg["model"]):
         raise BotError("Invalid Gemini model identifier.")
-    cfg.setdefault("thinking_budget", 4096)
-    if type(cfg["thinking_budget"]) is not int or not 0 <= cfg["thinking_budget"] <= 24576:
-        raise BotError("thinking_budget must be an integer from 0 to 24576.")
+    cfg.setdefault("thinking_level", "medium")
+    if cfg["thinking_level"] not in ("low", "medium", "high"):
+        raise BotError("thinking_level must be low, medium, or high for Gemini 3.8 Flash.")
     cfg.setdefault("user_agent", "leetcode-daily-runner/1.0")
     return cfg
 
@@ -240,6 +241,13 @@ class Solver:
     def __init__(self, cfg, http=None):
         self.cfg, self.http = cfg, http or HTTP()
 
+    def check_model(self):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.cfg['model']}"
+        data = self.http.json(url, {"x-goog-api-key": self.cfg["gemini_api_key"]}, retry=True)
+        methods = data.get("supportedGenerationMethods") or []
+        if "generateContent" not in methods:
+            raise BotError("Configured Gemini model does not support generateContent for this project.")
+
     def solve(self, q, previous, feedback):
         prompt = json.dumps({"title": q["title"], "statement_html": q["content"],
                              "cpp_template": q["snippet"], "previous_code": previous,
@@ -257,7 +265,7 @@ class Solver:
             "systemInstruction": {"parts": [{"text": instructions}]},
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"maxOutputTokens": self.cfg["max_output_tokens"],
-                                 "thinkingConfig": {"thinkingBudget": self.cfg["thinking_budget"]}},
+                                 "thinkingConfig": {"thinkingLevel": self.cfg["thinking_level"]}},
         }
         result = self.http.json(f"https://generativelanguage.googleapis.com/v1beta/models/{self.cfg['model']}:generateContent",
                                 {"x-goog-api-key": self.cfg["gemini_api_key"]},
@@ -438,11 +446,14 @@ def main():
             lc.authenticate()
             q = lc.daily()
             LOG.info("Authenticated; daily problem: %s (%s UTC).", q["titleSlug"], q["date"])
+            solver = Solver(cfg)
+            solver.check_model()
+            LOG.info("Gemini model %s is available for generateContent.", cfg["model"])
             if args.command == "check":
-                LOG.info("Check passed. No model calls, tests or submissions were made.")
+                LOG.info("Check passed. No model generation, tests or submissions were made.")
                 return 0
             checkpoint = GitHubState() if os.environ.get("GITHUB_ACTIONS") == "true" else None
-            return run_day(cfg, lc, Solver(cfg), directory, q, checkpoint)
+            return run_day(cfg, lc, solver, directory, q, checkpoint)
     except BotError as e:
         LOG.error("%s", e)
         return 1
