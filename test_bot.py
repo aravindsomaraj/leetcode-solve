@@ -209,6 +209,28 @@ class RunnerTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    def test_model_fallback_on_503(self):
+        from unittest.mock import Mock
+        cfg = {"model": "gemini-3.8-flash", "fallback_models": ["gemini-3.5-flash-lite"],
+               "thinking_level": "medium", "max_output_tokens": 16000, "gemini_api_key": "test"}
+        http = Mock()
+        http.json.side_effect = [bot.ModelUnavailable("503"), {"candidates": [
+            {"finishReason": "STOP", "content": {"parts": [{"text": "class Solution {};"}]}}]}]
+        code, _ = bot.Solver(cfg, http).solve(problem(), "", {})
+        self.assertIn("class Solution", code)
+        self.assertEqual(http.json.call_count, 2)
+        self.assertIn("gemini-3.5-flash-lite:generateContent", http.json.call_args.args[0])
+
+    def test_all_fallbacks_unavailable_preserve_error(self):
+        from unittest.mock import Mock
+        cfg = {"model": "primary", "fallback_models": ["fallback"],
+               "thinking_level": "medium", "max_output_tokens": 16000, "gemini_api_key": "test"}
+        http = Mock()
+        http.json.side_effect = bot.ModelUnavailable("503")
+        with self.assertRaises(bot.ModelUnavailable):
+            bot.Solver(cfg, http).solve(problem(), "", {})
+        self.assertEqual(http.json.call_count, 2)
+
     def test_code_extraction(self):
         self.assertEqual(bot.extract_code("```cpp\nclass Solution {};\n```"), "class Solution {};\n")
         with self.assertRaises(bot.BotError):
