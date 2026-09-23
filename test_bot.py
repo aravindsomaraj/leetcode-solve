@@ -220,6 +220,20 @@ class RunnerTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    def test_opaque_test_id_survives_start_and_is_encoded_for_poll(self):
+        from unittest.mock import Mock
+        http = Mock()
+        identifier = "runcode:123.456/part+value?x#fragment"
+        http.json.side_effect = [{"interpret_id": identifier, "test_case": "[1]"}, GOOD]
+        lc = bot.LeetCode({"leetcode_session": "session", "csrf_token": "csrf",
+                          "user_agent": "test", "poll_timeout_seconds": 30}, http)
+        actual = lc.start({**problem(), "sampleTestCase": "[1]"}, "code", "test")
+        self.assertEqual(actual, identifier)
+        self.assertEqual(lc.poll(actual), GOOD)
+        self.assertEqual(http.json.call_args.args[0],
+                         "https://leetcode.com/submissions/detail/"
+                         "runcode%3A123.456%2Fpart%2Bvalue%3Fx%23fragment/check/")
+
     def test_missing_id_reports_error_without_credentials(self):
         from unittest.mock import Mock
         http = Mock()
