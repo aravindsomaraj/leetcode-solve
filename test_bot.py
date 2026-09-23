@@ -204,13 +204,13 @@ class ContractTests(unittest.TestCase):
                 self.request = (url, headers, body)
                 return {"candidates": [{"finishReason": "STOP", "content": {"parts": [
                     {"text": "class Solution {};"}]}}]}
-        cfg = {"model": "gemini-2.5-flash", "thinking_budget": 4096, "max_output_tokens": 16000,
+        cfg = {"model": "gemini-3.8-flash", "thinking_level": "medium", "max_output_tokens": 16000,
                "gemini_api_key": "test-key", "leetcode_session": "PRIVATE_COOKIE"}
         http = FakeHTTP()
         bot.Solver(cfg, http).solve(problem(), "", {})
         self.assertNotIn("PRIVATE_COOKIE", json.dumps(http.request))
         self.assertEqual(http.request[1]["x-goog-api-key"], "test-key")
-        self.assertEqual(http.request[2]["generationConfig"]["thinkingConfig"]["thinkingBudget"], 4096)
+        self.assertEqual(http.request[2]["generationConfig"]["thinkingConfig"]["thinkingLevel"], "medium")
 
     def test_submit_payload_and_csrf(self):
         class FakeHTTP:
