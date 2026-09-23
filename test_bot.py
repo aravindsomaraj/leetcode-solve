@@ -136,6 +136,17 @@ class RunnerTests(unittest.TestCase):
         bot.run_day(CFG, FakeLC([GOOD, GOOD]), solver, self.path)
         self.assertEqual(self.state()["attempts"], 2)
 
+    def test_uncertain_test_resumes_saved_code(self):
+        lc, solver = FakeLC([]), FakeSolver()
+        with patch.object(lc, "start", side_effect=bot.BotError("missing ID")):
+            with self.assertRaises(bot.BotError):
+                bot.run_day(CFG, lc, solver, self.path)
+        self.assertEqual(self.state()["phase"], "sending_test")
+        resumed = FakeLC([GOOD, GOOD])
+        self.assertEqual(bot.run_day(CFG, resumed, solver, self.path), 0)
+        self.assertEqual(len(solver.calls), 1)
+        self.assertEqual(resumed.starts, ["test", "submit"])
+
     def test_explicit_503_preserves_attempt(self):
         solver = FakeSolver()
         with patch.object(solver, "solve", side_effect=bot.ModelUnavailable("HTTP 503")):
@@ -209,6 +220,18 @@ class RunnerTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    def test_missing_id_reports_error_without_credentials(self):
+        from unittest.mock import Mock
+        http = Mock()
+        http.json.return_value = {"error": "rejected secret-cookie secret-csrf"}
+        lc = bot.LeetCode({"leetcode_session": "secret-cookie", "csrf_token": "secret-csrf",
+                          "user_agent": "test"}, http)
+        with self.assertRaises(bot.BotError) as error:
+            lc.start({**problem(), "sampleTestCase": "[1]"}, "code", "test")
+        self.assertIn("rejected", str(error.exception))
+        self.assertNotIn("secret-cookie", str(error.exception))
+        self.assertNotIn("secret-csrf", str(error.exception))
+
     def test_model_fallback_on_503(self):
         from unittest.mock import Mock
         cfg = {"model": "gemini-3.8-flash", "fallback_models": ["gemini-3.5-flash-lite"],
