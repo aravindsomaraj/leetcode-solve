@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '17 0,1 * * *'
   workflow_dispatch:
+    inputs:
+      test_notifications:
+        description: 'Send test alerts only (do not run the solver)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -14,7 +19,7 @@ concurrency:
 
 jobs:
   solve:
-    if: github.ref_name == github.event.repository.default_branch
+    if: github.ref_name == github.event.repository.default_branch && inputs.test_notifications != true
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -40,9 +45,8 @@ jobs:
         if: always()
         run: python bot.py status
 
-
   notify-failure:
-    if: ${{ always() && needs.solve.result == 'failure' }}
+    if: ${{ always() && github.ref_name == github.event.repository.default_branch && (needs.solve.result == 'failure' || inputs.test_notifications == true) }}
     needs: solve
     runs-on: ubuntu-latest
     permissions:
@@ -61,4 +65,5 @@ jobs:
           ALERT_NTFY_URL: ${{ secrets.ALERT_NTFY_URL }}
           ALERT_NTFY_TOKEN: ${{ secrets.ALERT_NTFY_TOKEN }}
           ALERT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ALERT_TEST_MODE: ${{ inputs.test_notifications }}
         run: python .github/scripts/notify_failure.py

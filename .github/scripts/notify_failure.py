@@ -55,8 +55,12 @@ def send_push(subject, body):
 
 def main():
     run_url = required("ALERT_RUN_URL")
-    subject = "LeetCode Daily workflow failed"
-    body = f"The daily workflow failed. Open the run for details:\n{run_url}\n"
+    if os.environ.get("ALERT_TEST_MODE", "").lower() == "true":
+        subject = "Test: LeetCode Daily alerts"
+        body = f"This is a test of the email and phone alerts. Run details:\n{run_url}\n"
+    else:
+        subject = "LeetCode Daily workflow failed"
+        body = f"The daily workflow failed. Open the run for details:\n{run_url}\n"
     failed = False
     for name, sender in (("Email", send_email), ("Phone push", send_push)):
         try:
