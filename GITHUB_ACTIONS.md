@@ -66,3 +66,21 @@ Sources:
 - Secrets: https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets
 - Contents API: https://docs.github.com/en/rest/repos/contents
 - Git references: https://docs.github.com/en/rest/git/refs
+
+## Email and phone alerts when a run fails
+
+The `notify-failure` job runs after a failed `solve` job. Each alert contains a link to that run. Add these repository secrets under **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+| --- | --- |
+| `ALERT_SMTP_HOST` | Your mail provider's SMTP host (for Gmail, `smtp.gmail.com`) |
+| `ALERT_SMTP_PORT` | `465` for SMTP over TLS (default), or `587` for STARTTLS |
+| `ALERT_SMTP_USER` | Sending account's full email address |
+| `ALERT_SMTP_PASSWORD` | SMTP credential; for Gmail, use an app password rather than your normal account password |
+| `ALERT_EMAIL_TO` | Email address that should receive alerts |
+| `ALERT_NTFY_URL` | Full HTTPS topic URL, such as `https://ntfy.sh/a-long-random-private-topic` |
+| `ALERT_NTFY_TOKEN` | Optional bearer token if the ntfy topic requires authentication |
+
+Install the [ntfy phone app](https://docs.ntfy.sh/subscribe/phone/) and subscribe to the exact topic in `ALERT_NTFY_URL`. A topic on the public ntfy.sh server is accessible to anyone who knows its name, so choose a long random name or use a protected topic. The alert contains only the failure notice and run link, not credentials or judge output. See [ntfy's getting started guide](https://docs.ntfy.sh/) for topic setup and [its publishing guide](https://docs.ntfy.sh/publish/) for token authentication.
+
+The email and push attempts are independent: if one service is unavailable, the other is still attempted. The alert job reports an error when either channel fails or its secrets are missing. A cancelled or skipped run does not trigger alerts. Test the configuration by manually running the workflow after adding the secrets, then inspect the `notify-failure` job if the daily job fails. No live alert has been sent from this repository during development.

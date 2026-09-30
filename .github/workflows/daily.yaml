@@ -39,3 +39,26 @@ jobs:
       - name: Show final status
         if: always()
         run: python bot.py status
+
+
+  notify-failure:
+    if: ${{ always() && needs.solve.result == 'failure' }}
+    needs: solve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Send email and phone alerts
+        env:
+          ALERT_SMTP_HOST: ${{ secrets.ALERT_SMTP_HOST }}
+          ALERT_SMTP_PORT: ${{ secrets.ALERT_SMTP_PORT }}
+          ALERT_SMTP_USER: ${{ secrets.ALERT_SMTP_USER }}
+          ALERT_SMTP_PASSWORD: ${{ secrets.ALERT_SMTP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+          ALERT_NTFY_URL: ${{ secrets.ALERT_NTFY_URL }}
+          ALERT_NTFY_TOKEN: ${{ secrets.ALERT_NTFY_TOKEN }}
+          ALERT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python .github/scripts/notify_failure.py
